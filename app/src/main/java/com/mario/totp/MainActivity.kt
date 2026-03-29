@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,9 +39,11 @@ class MainActivity : ComponentActivity() {
 fun TotpApp(viewModel: MainViewModel = viewModel()) {
     val entries by viewModel.entries.collectAsState()
     val secondsRemaining by viewModel.currentTime.collectAsState()
+    val syncStatus by viewModel.syncStatus.collectAsState()
     
     var showAddDialog by remember { mutableStateOf(false) }
     var showFetchDialog by remember { mutableStateOf(false) }
+    var showSyncDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -50,12 +53,30 @@ fun TotpApp(viewModel: MainViewModel = viewModel()) {
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                ),
+                actions = {
+                    if (syncStatus != null) {
+                        Text(
+                            text = syncStatus!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
             )
         },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
                 if (showFabMenu) {
+                    ExtendedFloatingActionButton(
+                        onClick = { 
+                            showSyncDialog = true
+                            showFabMenu = false
+                        },
+                        icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                        text = { Text("Sync (Push/Pull)") },
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
                     ExtendedFloatingActionButton(
                         onClick = { 
                             showFetchDialog = true
@@ -120,6 +141,16 @@ fun TotpApp(viewModel: MainViewModel = viewModel()) {
                 onFetch = { url ->
                     viewModel.fetchFromUrl(url)
                     showFetchDialog = false
+                }
+            )
+        }
+
+        if (showSyncDialog) {
+            SyncDialog(
+                onDismiss = { showSyncDialog = false },
+                onSync = { url ->
+                    viewModel.syncWithUrl(url)
+                    showSyncDialog = false
                 }
             )
         }
@@ -214,6 +245,36 @@ fun FetchJsonDialog(onDismiss: () -> Unit, onFetch: (String) -> Unit) {
         confirmButton = {
             Button(onClick = { if (url.isNotBlank()) onFetch(url) }) {
                 Text("Fetch")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun SyncDialog(onDismiss: () -> Unit, onSync: (String) -> Unit) {
+    var url by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sync (Two-Way)") },
+        text = {
+            Column {
+                Text("Downloads from server, combines with local, and pushes the total list back.", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("Sync API URL") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (url.isNotBlank()) onSync(url) }) {
+                Text("Sync Now")
             }
         },
         dismissButton = {
