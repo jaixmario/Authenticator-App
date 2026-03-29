@@ -9,7 +9,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,6 +52,8 @@ fun TotpApp(viewModel: MainViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showSyncDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
+    
+    var editingEntry by remember { mutableStateOf<TotpEntry?>(null) }
 
     Scaffold(
         topBar = {
@@ -116,7 +120,12 @@ fun TotpApp(viewModel: MainViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(entries) { entry ->
-                        TotpCard(entry, secondsRemaining)
+                        TotpCard(
+                            entry = entry, 
+                            secondsRemaining = secondsRemaining,
+                            onDelete = { viewModel.deleteEntry(context, entry) },
+                            onEdit = { editingEntry = entry }
+                        )
                     }
                 }
             }
@@ -142,14 +151,31 @@ fun TotpApp(viewModel: MainViewModel) {
                 }
             )
         }
+
+        if (editingEntry != null) {
+            EditNameDialog(
+                entry = editingEntry!!,
+                onDismiss = { editingEntry = null },
+                onUpdate = { newName ->
+                    viewModel.updateEntry(context, editingEntry!!.name, newName)
+                    editingEntry = null
+                }
+            )
+        }
     }
 }
 
 @Composable
-fun TotpCard(entry: TotpEntry, secondsRemaining: Int) {
+fun TotpCard(
+    entry: TotpEntry, 
+    secondsRemaining: Int, 
+    onDelete: () -> Unit,
+    onEdit: () -> Unit
+) {
     val code = remember(entry.secret, secondsRemaining / 30) {
         TotpGenerator.generateTotp(entry.secret)
     }
+    var showMenu by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -157,12 +183,12 @@ fun TotpCard(entry: TotpEntry, secondsRemaining: Int) {
     ) {
         Row(
             modifier = Modifier
-                .padding(20.dp)
+                .padding(start = 20.dp, top = 20.dp, bottom = 20.dp, end = 8.dp)
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = entry.name,
                     style = MaterialTheme.typography.titleMedium,
@@ -177,13 +203,71 @@ fun TotpCard(entry: TotpEntry, secondsRemaining: Int) {
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-            Text(
-                text = "$secondsRemaining",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (secondsRemaining < 5) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
-            )
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "$secondsRemaining",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (secondsRemaining < 5) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                )
+                
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit Name") },
+                            onClick = { 
+                                showMenu = false
+                                onEdit() 
+                            },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = { 
+                                showMenu = false
+                                onDelete() 
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                        )
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+fun EditNameDialog(entry: TotpEntry, onDismiss: () -> Unit, onUpdate: (String) -> Unit) {
+    var newName by remember { mutableStateOf(entry.name) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Account Name") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("New Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (newName.isNotBlank()) onUpdate(newName) }) {
+                Text("Update")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

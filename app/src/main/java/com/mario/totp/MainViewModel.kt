@@ -61,6 +61,18 @@ class MainViewModel : ViewModel() {
         saveLocalData(context)
     }
 
+    fun deleteEntry(context: Context, entry: TotpEntry) {
+        _entries.value = _entries.value.filter { it.name != entry.name }
+        saveLocalData(context)
+    }
+
+    fun updateEntry(context: Context, oldName: String, newName: String) {
+        _entries.value = _entries.value.map {
+            if (it.name == oldName) it.copy(name = newName) else it
+        }
+        saveLocalData(context)
+    }
+
     private fun getRetrofit(): TotpApi {
         return Retrofit.Builder()
             .baseUrl("https://placeholder.com/")
