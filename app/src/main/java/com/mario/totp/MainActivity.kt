@@ -10,12 +10,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,7 +28,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             TOTPTheme {
-                TotpApp()
+                val viewModel: MainViewModel = viewModel()
+                val context = LocalContext.current
+                LaunchedEffect(Unit) {
+                    viewModel.initData(context)
+                }
+                TotpApp(viewModel)
             }
         }
     }
@@ -36,13 +41,13 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TotpApp(viewModel: MainViewModel = viewModel()) {
+fun TotpApp(viewModel: MainViewModel) {
+    val context = LocalContext.current
     val entries by viewModel.entries.collectAsState()
     val secondsRemaining by viewModel.currentTime.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
     
     var showAddDialog by remember { mutableStateOf(false) }
-    var showFetchDialog by remember { mutableStateOf(false) }
     var showSyncDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
 
@@ -58,8 +63,9 @@ fun TotpApp(viewModel: MainViewModel = viewModel()) {
                     if (syncStatus != null) {
                         Text(
                             text = syncStatus!!,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(end = 8.dp)
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(end = 16.dp),
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -75,15 +81,6 @@ fun TotpApp(viewModel: MainViewModel = viewModel()) {
                         },
                         icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                         text = { Text("Sync (Push/Pull)") },
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    ExtendedFloatingActionButton(
-                        onClick = { 
-                            showFetchDialog = true
-                            showFabMenu = false
-                        },
-                        icon = { Icon(Icons.Default.List, contentDescription = null) },
-                        text = { Text("Fetch from JSON") },
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     ExtendedFloatingActionButton(
@@ -129,18 +126,8 @@ fun TotpApp(viewModel: MainViewModel = viewModel()) {
             AddManualDialog(
                 onDismiss = { showAddDialog = false },
                 onAdd = { name, secret ->
-                    viewModel.addEntry(name, secret)
+                    viewModel.addEntry(context, name, secret)
                     showAddDialog = false
-                }
-            )
-        }
-
-        if (showFetchDialog) {
-            FetchJsonDialog(
-                onDismiss = { showFetchDialog = false },
-                onFetch = { url ->
-                    viewModel.fetchFromUrl(url)
-                    showFetchDialog = false
                 }
             )
         }
@@ -148,8 +135,9 @@ fun TotpApp(viewModel: MainViewModel = viewModel()) {
         if (showSyncDialog) {
             SyncDialog(
                 onDismiss = { showSyncDialog = false },
+                currentUrl = viewModel.getSavedApiUrl(context),
                 onSync = { url ->
-                    viewModel.syncWithUrl(url)
+                    viewModel.syncWithUrl(context, url)
                     showSyncDialog = false
                 }
             )
@@ -224,45 +212,15 @@ fun AddManualDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
 }
 
 @Composable
-fun FetchJsonDialog(onDismiss: () -> Unit, onFetch: (String) -> Unit) {
-    var url by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Fetch from URL") },
-        text = {
-            Column {
-                Text("Enter URL to JSON (e.g. { \"Key\": \"Secret\" })", style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("JSON API URL") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { if (url.isNotBlank()) onFetch(url) }) {
-                Text("Fetch")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-fun SyncDialog(onDismiss: () -> Unit, onSync: (String) -> Unit) {
-    var url by remember { mutableStateOf("") }
+fun SyncDialog(onDismiss: () -> Unit, currentUrl: String, onSync: (String) -> Unit) {
+    var url by remember { mutableStateOf(currentUrl) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sync (Two-Way)") },
         text = {
             Column {
-                Text("Downloads from server, combines with local, and pushes the total list back.", style = MaterialTheme.typography.bodySmall)
+                Text("Downloads from server, merges with local, and pushes combined list.", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = url,

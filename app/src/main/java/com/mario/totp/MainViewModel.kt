@@ -1,7 +1,10 @@
 package com.mario.totp
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +22,18 @@ class MainViewModel : ViewModel() {
     private val _syncStatus = MutableStateFlow<String?>(null)
     val syncStatus: StateFlow<String?> = _syncStatus
 
-    init {
+    private val PREFS_NAME = "totp_prefs"
+    private val KEY_ENTRIES = "entries"
+    private val KEY_API_URL = "api_url"
+
+    fun initData(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val json = prefs.getString(KEY_ENTRIES, null)
+        if (json != null) {
+            val type = object : TypeToken<List<TotpEntry>>() {}.type
+            _entries.value = Gson().fromJson(json, type)
+        }
+
         viewModelScope.launch {
             while (true) {
                 _currentTime.value = TotpGenerator.getRemainingSeconds()
@@ -28,8 +42,23 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun addEntry(name: String, secret: String) {
-        _entries.value = _entries.value + TotpEntry(name, secret)
+    private fun saveLocalData(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val json = Gson().toJson(_entries.value)
+        prefs.edit().putString(KEY_ENTRIES, json).apply()
+    }
+
+    fun getSavedApiUrl(context: Context): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_API_URL, "") ?: ""
+    }
+
+    fun saveApiUrl(context: Context, url: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_API_URL, url).apply()
+    }
+
+    fun addEntry(context: Context, name: String, secret: String) {
+        _entries.value = (_entries.value + TotpEntry(name, secret)).distinctBy { it.name }
+        saveLocalData(context)
     }
 
     private fun getRetrofit(): TotpApi {
@@ -40,7 +69,8 @@ class MainViewModel : ViewModel() {
             .create(TotpApi::class.java)
     }
 
-    fun syncWithUrl(url: String) {
+    fun syncWithUrl(context: Context, url: String) {
+        saveApiUrl(context, url)
         viewModelScope.launch {
             try {
                 _syncStatus.value = "Syncing..."
@@ -50,35 +80,27 @@ class MainViewModel : ViewModel() {
                 val fetchedMap = api.fetchSecrets(url)
                 val fetchedEntries = fetchedMap.map { TotpEntry(it.key, it.value) }
                 
-                // 2. Combine with local (avoid duplicates)
                 val currentLocal = _entries.value
-                val combined = (currentLocal + fetchedEntries).distinctBy { it.name }
-                _entries.value = combined
+                val newFromCloud = fetchedEntries.filter { cloud -> currentLocal.none { it.name == cloud.name } }
                 
-                // 3. Push combined back to server
+                // 2. Combine
+                val combined = (currentLocal + fetchedEntries).distinctBy { it.name }
+                val uploadedCount = combined.size - fetchedEntries.size
+                
+                _entries.value = combined
+                saveLocalData(context)
+                
+                // 3. Push back
                 val mapToPush = combined.associate { it.name to it.secret }
                 api.pushSecrets(url, mapToPush)
                 
-                _syncStatus.value = "Sync Successful!"
-                delay(2000)
+                _syncStatus.value = "Added ${newFromCloud.size}, Uploaded $uploadedCount"
+                delay(4000)
                 _syncStatus.value = null
             } catch (e: Exception) {
                 _syncStatus.value = "Sync Failed: ${e.localizedMessage}"
                 delay(3000)
                 _syncStatus.value = null
-            }
-        }
-    }
-
-    fun fetchFromUrl(url: String) {
-        viewModelScope.launch {
-            try {
-                val api = getRetrofit()
-                val response = api.fetchSecrets(url)
-                val newEntries = response.map { TotpEntry(it.key, it.value) }
-                _entries.value = (_entries.value + newEntries).distinctBy { it.name }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
