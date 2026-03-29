@@ -1,9 +1,13 @@
 package com.mario.totp
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mario.totp.ui.theme.TOTPTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,6 +54,9 @@ fun TotpApp(viewModel: MainViewModel) {
     val secondsRemaining by viewModel.currentTime.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
     
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    
     var showAddDialog by remember { mutableStateOf(false) }
     var showSyncDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
@@ -56,6 +64,7 @@ fun TotpApp(viewModel: MainViewModel) {
     var editingEntry by remember { mutableStateOf<TotpEntry?>(null) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("TOTP Authenticator") },
@@ -124,7 +133,12 @@ fun TotpApp(viewModel: MainViewModel) {
                             entry = entry, 
                             secondsRemaining = secondsRemaining,
                             onDelete = { viewModel.deleteEntry(context, entry) },
-                            onEdit = { editingEntry = entry }
+                            onEdit = { editingEntry = entry },
+                            onCopied = {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Code copied for ${entry.name}")
+                                }
+                            }
                         )
                     }
                 }
@@ -170,15 +184,24 @@ fun TotpCard(
     entry: TotpEntry, 
     secondsRemaining: Int, 
     onDelete: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onCopied: () -> Unit
 ) {
+    val context = LocalContext.current
     val code = remember(entry.secret, secondsRemaining / 30) {
         TotpGenerator.generateTotp(entry.secret)
     }
     var showMenu by remember { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("TOTP Code", code)
+                clipboard.setPrimaryClip(clip)
+                onCopied()
+            },
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Row(

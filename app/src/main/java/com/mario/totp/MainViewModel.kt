@@ -64,6 +64,12 @@ class MainViewModel : ViewModel() {
     fun deleteEntry(context: Context, entry: TotpEntry) {
         _entries.value = _entries.value.filter { it.name != entry.name }
         saveLocalData(context)
+        
+        // Auto-push after delete if URL exists
+        val url = getSavedApiUrl(context)
+        if (url.isNotEmpty()) {
+            pushOnly(url)
+        }
     }
 
     fun updateEntry(context: Context, oldName: String, newName: String) {
@@ -71,6 +77,12 @@ class MainViewModel : ViewModel() {
             if (it.name == oldName) it.copy(name = newName) else it
         }
         saveLocalData(context)
+        
+        // Auto-push after update if URL exists
+        val url = getSavedApiUrl(context)
+        if (url.isNotEmpty()) {
+            pushOnly(url)
+        }
     }
 
     private fun getRetrofit(): TotpApi {
@@ -79,6 +91,24 @@ class MainViewModel : ViewModel() {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(TotpApi::class.java)
+    }
+
+    fun pushOnly(url: String) {
+        viewModelScope.launch {
+            try {
+                _syncStatus.value = "Pushing..."
+                val api = getRetrofit()
+                val mapToPush = _entries.value.associate { it.name to it.secret }
+                api.pushSecrets(url, mapToPush)
+                _syncStatus.value = "Pushed to cloud"
+                delay(2000)
+                _syncStatus.value = null
+            } catch (e: Exception) {
+                _syncStatus.value = "Push Failed"
+                delay(2000)
+                _syncStatus.value = null
+            }
+        }
     }
 
     fun syncWithUrl(context: Context, url: String) {
