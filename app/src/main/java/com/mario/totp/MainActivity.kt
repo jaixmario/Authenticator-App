@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -56,125 +57,148 @@ fun TotpApp(viewModel: MainViewModel) {
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     
     var showAddDialog by remember { mutableStateOf(false) }
-    var showSyncDialog by remember { mutableStateOf(false) }
-    var showFabMenu by remember { mutableStateOf(false) }
-    
     var editingEntry by remember { mutableStateOf<TotpEntry?>(null) }
+    
+    var apiUrl by remember { mutableStateOf(viewModel.getSavedApiUrl(context)) }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("TOTP Authenticator") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-                actions = {
-                    if (syncStatus != null) {
-                        Text(
-                            text = syncStatus!!,
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(end = 16.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                if (showFabMenu) {
-                    ExtendedFloatingActionButton(
-                        onClick = { 
-                            showSyncDialog = true
-                            showFabMenu = false
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Settings",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                HorizontalDivider()
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Sync API Configuration", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = apiUrl,
+                        onValueChange = { 
+                            apiUrl = it
+                            viewModel.saveApiUrl(context, it)
                         },
-                        icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                        text = { Text("Sync (Push/Pull)") },
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        label = { Text("API URL") },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("https://your-api.com/secrets") }
                     )
-                    ExtendedFloatingActionButton(
-                        onClick = { 
-                            showAddDialog = true
-                            showFabMenu = false
-                        },
-                        icon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                        text = { Text("Add Manually") },
-                        modifier = Modifier.padding(bottom = 8.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "This URL is used for two-way synchronization (GET to fetch, POST to push).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
-                }
-                FloatingActionButton(onClick = { showFabMenu = !showFabMenu }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add")
                 }
             }
         }
-    ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding)) {
-            LinearProgressIndicator(
-                progress = { secondsRemaining / 30f },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            
-            if (entries.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No accounts added yet", style = MaterialTheme.typography.bodyLarge)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(entries) { entry ->
-                        TotpCard(
-                            entry = entry, 
-                            secondsRemaining = secondsRemaining,
-                            onDelete = { viewModel.deleteEntry(context, entry) },
-                            onEdit = { editingEntry = entry },
-                            onCopied = {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Code copied for ${entry.name}")
+    ) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                TopAppBar(
+                    title = { Text("TOTP Authenticator") },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    actions = {
+                        if (syncStatus != null) {
+                            Text(
+                                text = syncStatus!!,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(end = 8.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(
+                            onClick = { 
+                                val url = viewModel.getSavedApiUrl(context)
+                                if (url.isNotEmpty()) {
+                                    viewModel.syncWithUrl(context, url)
+                                } else {
+                                    scope.launch {
+                                        drawerState.open()
+                                        snackbarHostState.showSnackbar("Please set API URL in Settings first")
+                                    }
                                 }
-                            }
-                        )
+                            },
+                            enabled = syncStatus == null
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Sync Now")
+                        }
+                    }
+                )
+            },
+            floatingActionButton = {
+                FloatingActionButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Account")
+                }
+            }
+        ) { innerPadding ->
+            Column(modifier = Modifier.padding(innerPadding)) {
+                LinearProgressIndicator(
+                    progress = { secondsRemaining / 30f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                
+                if (entries.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No accounts added yet", style = MaterialTheme.typography.bodyLarge)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(entries) { entry ->
+                            TotpCard(
+                                entry = entry, 
+                                secondsRemaining = secondsRemaining,
+                                onDelete = { viewModel.deleteEntry(context, entry) },
+                                onEdit = { editingEntry = entry },
+                                onCopied = {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Code copied for ${entry.name}")
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        if (showAddDialog) {
-            AddManualDialog(
-                onDismiss = { showAddDialog = false },
-                onAdd = { name, secret ->
-                    viewModel.addEntry(context, name, secret)
-                    showAddDialog = false
-                }
-            )
-        }
+            if (showAddDialog) {
+                AddManualDialog(
+                    onDismiss = { showAddDialog = false },
+                    onAdd = { name, secret ->
+                        viewModel.addEntry(context, name, secret)
+                        showAddDialog = false
+                    }
+                )
+            }
 
-        if (showSyncDialog) {
-            SyncDialog(
-                onDismiss = { showSyncDialog = false },
-                currentUrl = viewModel.getSavedApiUrl(context),
-                onSync = { url ->
-                    viewModel.syncWithUrl(context, url)
-                    showSyncDialog = false
-                }
-            )
-        }
-
-        if (editingEntry != null) {
-            EditNameDialog(
-                entry = editingEntry!!,
-                onDismiss = { editingEntry = null },
-                onUpdate = { newName ->
-                    viewModel.updateEntry(context, editingEntry!!.name, newName)
-                    editingEntry = null
-                }
-            )
+            if (editingEntry != null) {
+                EditNameDialog(
+                    entry = editingEntry!!,
+                    onDismiss = { editingEntry = null },
+                    onUpdate = { newName ->
+                        viewModel.updateEntry(context, editingEntry!!.name, newName)
+                        editingEntry = null
+                    }
+                )
+            }
         }
     }
 }
@@ -310,36 +334,6 @@ fun AddManualDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
         confirmButton = {
             Button(onClick = { if (name.isNotBlank() && secret.isNotBlank()) onAdd(name, secret) }) {
                 Text("Add")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-fun SyncDialog(onDismiss: () -> Unit, currentUrl: String, onSync: (String) -> Unit) {
-    var url by remember { mutableStateOf(currentUrl) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Sync (Two-Way)") },
-        text = {
-            Column {
-                Text("Downloads from server, merges with local, and pushes combined list.", style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("Sync API URL") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { if (url.isNotBlank()) onSync(url) }) {
-                Text("Sync Now")
             }
         },
         dismissButton = {
